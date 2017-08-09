@@ -2,74 +2,39 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-
-static
-int isRed(struct rb_node * node)
-{
-	return node != NULL && node->isRed;
-}
-static
-int isBlack(struct rb_node * node)
-{
-	return node == NULL || !node->isRed;
-}
-static
-int is3(struct rb_node * node)
-{
-	return node != NULL && isRed(node->right);
-}
-static
-int is2(struct rb_node * node)
-{
-	return node == NULL || isBlack(node->right);
-}
-static
-struct rb_node * rb_init(struct rb_node * node)
+#define IS_RED(nodeptr) ((nodeptr) != 0 && (nodeptr)->is_red != 0)
+#define IS_BLACK(nodeptr) ((nodeptr) == 0 || (nodeptr)->is_red == 0)
+#define IS_3(nodeptr) ((nodeptr) != 0 && IS_RED((nodeptr)->right))
+#define IS_2(nodeptr) ((nodeptr) == 0 || IS_BLACK((nodeptr)->right))
+static struct rb_node * rb_node_init(struct rb_node * node)
 {
 	node->left = 0;
 	node->right = 0;
-	node->isRed = 1;
+	node->is_red = 1;
 	return node;
 }
-static
-struct rb_node * rb_init_root(struct rb_node * node)
+static struct rb_node * rb_node_init_root(struct rb_node * node)
 {
 	node->left = 0;
 	node->right = 0;
-	node->isRed = 0;
+	node->is_red = 0;
 	return node;
 }
-static
-struct rb_node * rb_set_black(struct rb_node * const node)
+static struct rb_node * rb_set_black(struct rb_node * const node)
 {
 	if(node == 0)
 		return 0;
-	node->isRed = 0;
+	node->is_red = 0;
 	return node;
 }
-static
-struct rb_node * rb_set_red(struct rb_node * const node)
+static struct rb_node * rb_set_red(struct rb_node * const node)
 {
 	if(node == 0)
 		return 0;
-	node->isRed = 1;
+	node->is_red = 1;
 	return node;
 }
-static
-int default_cmp(void const * addr1, void const * addr2)
-{
-	return (char*)addr1 - (char*)addr2;
-}
-static
-int compare(struct rb_node const * addr1, struct rb_node const * addr2,
-			rb_cmp cmp, int offset)
-{
-	if(cmp == 0)
-		return default_cmp(addr1, addr2);
-	return (*cmp)((char*)addr1 - offset, (char*)addr2 - offset);
-}
-static
-struct rb_node * rb_ror(struct rb_node * node, struct rb_node * parent)
+static struct rb_node * rb_ror(struct rb_node * node, struct rb_node * parent)
 {
 	struct rb_node * pivot = node->left;
 	node->left = pivot->right;
@@ -83,8 +48,7 @@ struct rb_node * rb_ror(struct rb_node * node, struct rb_node * parent)
 	}
 	return pivot;
 }
-static
-struct rb_node * rb_rol(struct rb_node * node, struct rb_node * parent)
+static struct rb_node * rb_rol(struct rb_node * node, struct rb_node * parent)
 {
 	struct rb_node * pivot = node->right;
 	node->right = pivot->left;
@@ -98,57 +62,63 @@ struct rb_node * rb_rol(struct rb_node * node, struct rb_node * parent)
 	}
 	return pivot;
 }
-struct rb_node * rb_find(struct rb_node * self,
-			 struct rb_node const * item,
-			 rb_cmp cmp, int offset)
+static void * rb_get_item(struct rb_node const * nd, int offset)
 {
+	return ((char*)nd) - offset;
+}
+static struct rb_node * rb_get_node(void const * item, int offset)
+{
+	return (struct rb_node*)(((char*)item) + offset);
+}
+void * rb_find(struct rbtree const * rb, void const * item)
+{
+	int offset = rb->offset;
+	rb_cmp cmp = rb->cmp;
+	struct rb_node * self = rb->root;
 	while(self)
 	{
-		int cmp_result = compare(item, self, cmp, offset);
-		if(cmp_result > 0)
+		int result = (*cmp)(item, rb_get_item(self, offset));
+		if(result > 0)
 			self = self->right;
-		else if(cmp_result < 0)
+		else if(result < 0)
 			self = self->left;
 		else
-			break;
+			return rb_get_item(self, offset);
 	}
-	return self;
+	return NULL;
 }
-struct rb_node * rb_insert(struct rb_node ** const root, struct rb_node * item,
-			   rb_cmp cmp, int offset)
+int rb_insert(struct rbtree * rb, void * item)
 {
+	
 	struct rb_node * stack[64];
-	struct rb_node ** sp;
-	struct rb_node * node;
-	struct rb_node * parent;
-	if(root == 0 || item == 0)
-		return 0;
-	if(*root == 0)
+	struct rb_node ** sp = stack;
+	struct rb_node * node = rb->root;
+	int offset = rb->offset;
+	rb_cmp cmp = rb->cmp;
+	struct rb_node * item_node = rb_get_node(item, offset);
+	if(rb->root == NULL)
 	{
-		*root = rb_init_root(item);
-		return item;
+		rb->root = rb_node_init_root(item_node);
+		return 0;
 	}
-	sp = stack - 1;
-	node = *root;
-	parent = 0;
-	*++sp = parent;
+	*sp = NULL;
 	while(1)
 	{
-		int cmp_result = compare(item, node, cmp, offset);
-		if(cmp_result == 0)
-			return 0;
+		int cmp_result = (*cmp)(item, rb_get_item(node, offset));
 		*++sp = node;
 		if(cmp_result < 0)
 			node = node->left;
-		else
+		else if(cmp_result > 0)
 			node = node->right;
+		else
+			return 1;
 		if(node == 0)
 		{
 			node = *sp;
 			if(cmp_result < 0)
-				node->left = rb_init(item);
+				node->left = rb_node_init(item_node);
 			else
-				node->right = rb_init(item);
+				node->right = rb_node_init(item_node);
 			break;
 		}
 	}
@@ -156,34 +126,34 @@ struct rb_node * rb_insert(struct rb_node ** const root, struct rb_node * item,
 	while(sp > stack)
 	{
 		node = *sp--;
-		parent = *sp;
-		if(node->left != 0 && node->left->isRed)
+		struct rb_node * parent = *sp;
+		if(node->left != 0 && node->left->is_red)
 		{
 			no_fix_count = 0;
-			if(isRed(node->right))
+			if(IS_RED(node->right))
 				goto split_by_recolour;
 			node = rb_ror(node, parent);
-			node->isRed = node->right->isRed;
-			node->right->isRed = 1;
-			assert(isBlack(node->left));
+			node->is_red = node->right->is_red;
+			node->right->is_red = 1;
+			assert(IS_BLACK(node->left));
 		}
-		if(isRed(node->right) && isRed(node->right->right))
+		if(IS_RED(node->right) && IS_RED(node->right->right))
 		{
 			no_fix_count = 0;
 			node = rb_rol(node, parent);
 		split_by_recolour:
-			node->isRed = 1;
-			node->left->isRed = 0;
-			node->right->isRed = 0;
+			node->is_red = 1;
+			node->left->is_red = 0;
+			node->right->is_red = 0;
 		}
 		if(no_fix_count > 1)
-			return item;
+			return 0;
 		no_fix_count++;
 	}
-	*root = rb_set_black(node);
-	return item;
+	rb->root = rb_set_black(node);
+	return 0;
 }
-static
+static inline
 int rb_swap(struct rb_node * n1, struct rb_node * np1,
 	    struct rb_node * n2, struct rb_node * np2)
 {
@@ -273,43 +243,41 @@ int rb_swap(struct rb_node * n1, struct rb_node * np1,
 	}
 	return 0;
 }
-struct rb_node * rb_delete(struct rb_node ** const root, struct rb_node * item,
-			   rb_cmp cmp, int offset)
+int rb_remove(struct rbtree * rb, void * item)
 {
 	struct rb_node * stack[64];
-	struct rb_node ** sp = stack - 1;
-	struct rb_node ** targ_p = 0;
-	struct rb_node ** targ = 0;
-
-	struct rb_node * parent = 0;
-	struct rb_node * node = *root;
-	int cmp_result;
-	*++sp = 0;
-	while(node != 0)
+	struct rb_node ** sp = stack;
+	struct rb_node ** targ_p = NULL;
+	struct rb_node ** targ = NULL;
+	
+	int offset = rb->offset;
+	rb_cmp cmp = rb->cmp;
+	struct rb_node * node = rb->root;
+	*sp = NULL;
+	while(node)
 	{
 		*++sp = node;
-		if(targ == 0)
+		if(targ)
 		{
-			cmp_result = compare(item, node, cmp, offset);
-			if(cmp_result == 0)
-			{
-				targ = sp;
-				targ_p = sp - 1;
-				item = node;
-			}
-			if(cmp_result > 0)
-				node = node->right;
-			else
-				node = node->left;
+			node = node->right;
 		}
 		else
 		{
-			node = node->right;
+			int result = (*cmp)(item, rb_get_item(node, offset));
+			if(result > 0)
+				node = node->right;
+			else if(result < 0)
+				node = node->left;
+			else
+			{
+				targ = sp;
+				targ_p = sp - 1;
+			}
 		}
 	}
 	/* return null if target is not found*/
 	if(targ == 0)
-		return 0;
+		return 1;
 
 
 	struct rb_node ** const leaf = sp;
@@ -320,31 +288,31 @@ struct rb_node * rb_delete(struct rb_node ** const root, struct rb_node * item,
 	{
 		rb_swap(*leaf, *leaf_p, *targ, *targ_p);
 		{
-			unsigned long tmp = (*targ)->isRed;
-			(*targ)->isRed = (*leaf)->isRed;
-			(*leaf)->isRed = tmp;
+			unsigned long tmp = (*targ)->is_red;
+			(*targ)->is_red = (*leaf)->is_red;
+			(*leaf)->is_red = tmp;
 		}
 		{
 			struct rb_node * tmp = *targ;
 			*targ = *leaf;
 			*leaf = tmp;
 		}
-		*root =stack[1];
+		rb->root = stack[1];
 	}
 
 	/* delete leaf root*/
-	if(*leaf == *root)
+	if(*leaf == rb->root)
 	{
 		assert(*leaf_p == 0);
-		*root = rb_set_black((*root)->right);
-		return item;
+		rb->root = rb_set_black((rb->root)->right);
+		return 0;
 	}
 
 	/* delete red leaf*/
-	if(isRed(*leaf))
+	if(IS_RED(*leaf))
 	{
 		(*leaf_p)->right = 0;
-		return item;
+		return 0;
 	}
 
 	/* delete 3-leaf*/
@@ -355,7 +323,7 @@ struct rb_node * rb_delete(struct rb_node ** const root, struct rb_node * item,
 		else
 			(*leaf_p)->right = (*leaf)->right;
 		rb_set_black((*leaf)->right);
-		return item;
+		return 0;
 	}
 
 	/* remove leaf from its parent*/
@@ -365,25 +333,26 @@ struct rb_node * rb_delete(struct rb_node ** const root, struct rb_node * item,
 		(*leaf_p)->right = 0;
 	struct rb_node * dangle = 0;
 	sp = leaf_p;
+	struct rb_node * parent;
 	while(1)
 	{
 		node = *sp--;
 		parent = *sp;
-		if(isBlack(node))
+		if(IS_BLACK(node))
 		{
 			if(IS_3(node) || IS_3(node->right) || IS_3(node->left))
 				break;
 			if(node->left == 0)
 			{
 				node->left = dangle;
-				node->right->isRed = 1;
+				node->right->is_red = 1;
 			}
 			else if(node->right == 0)
 			{
 				assert(node->right == 0);
 				node->right = dangle;
 				node = rb_ror(node, parent);
-				node->right->isRed = 1;
+				node->right->is_red = 1;
 			}
 			dangle = node;
 			if(parent != 0)
@@ -397,8 +366,8 @@ struct rb_node * rb_delete(struct rb_node ** const root, struct rb_node * item,
 		if(sp <= stack)
 		{
 
-			*root = rb_set_black(node);
-			return item;
+			rb->root = rb_set_black(node);
+			return 0;
 		}
 	}
 
@@ -412,7 +381,7 @@ struct rb_node * rb_delete(struct rb_node ** const root, struct rb_node * item,
 			node->left = dangle;
 			node = rb_rol(node, parent);
 
-			node->right->isRed = 0;
+			node->right->is_red = 0;
 		}
 		else if(node->right == 0)
 		{
@@ -422,7 +391,7 @@ struct rb_node * rb_delete(struct rb_node ** const root, struct rb_node * item,
 			rb_rol(node->left, node);
 			node = rb_ror(node, parent);
 
-			node->isRed = 0;
+			node->is_red = 0;
 		}
 	}
 	else
@@ -436,7 +405,7 @@ struct rb_node * rb_delete(struct rb_node ** const root, struct rb_node * item,
 				rb_ror(node->right, node);
 				node = rb_rol(node, parent);
 
-				node->right->left->isRed = 0;
+				node->right->left->is_red = 0;
 			}
 			else if(IS_3(node->right->right))
 			{
@@ -444,9 +413,9 @@ struct rb_node * rb_delete(struct rb_node ** const root, struct rb_node * item,
 				node = rb_rol(node, parent);
 				rb_rol(node->right, node);
 
-				node->right->isRed = 1;
-				node->right->left->isRed = 0;
-				node->right->right->isRed = 0;
+				node->right->is_red = 1;
+				node->right->left->is_red = 0;
+				node->right->right->is_red = 0;
 			}
 			else
 			{
@@ -455,8 +424,8 @@ struct rb_node * rb_delete(struct rb_node ** const root, struct rb_node * item,
 
 				node = rb_rol(node, parent);
 
-				node->isRed = 0;
-				node->left->right->isRed = 1;
+				node->is_red = 0;
+				node->left->right->is_red = 1;
 			}
 		}
 		else if(node->right->left == 0)
@@ -466,9 +435,9 @@ struct rb_node * rb_delete(struct rb_node ** const root, struct rb_node * item,
 			{
 				rb_rol(node->right, node);
 
-				node->right->isRed = 1;
-				node->right->left->isRed = 0;
-				node->right->right->isRed = 0;
+				node->right->is_red = 1;
+				node->right->left->is_red = 0;
+				node->right->right->is_red = 0;
 			}
 			else if(IS_3(node->left))
 			{
@@ -476,15 +445,15 @@ struct rb_node * rb_delete(struct rb_node ** const root, struct rb_node * item,
 				node = rb_ror(node, parent);
 				rb_rol(node->right, node);
 
-				node->isRed = 0;
+				node->is_red = 0;
 			}
 			else
 			{
 				assert(IS_2(node->left));
 				assert(IS_2(node->right->right));
 
-				node->right->isRed = 0;
-				node->right->right->isRed = 1;
+				node->right->is_red = 0;
+				node->right->right->is_red = 1;
 			}
 		}
 		else if(node->right->right == 0)
@@ -495,9 +464,9 @@ struct rb_node * rb_delete(struct rb_node ** const root, struct rb_node * item,
 				rb_rol(node->right->left, node->right);
 				rb_ror(node->right, node);
 
-				node->right->isRed = 1;
-				node->right->left->isRed = 0;
-				node->right->right->isRed = 0;
+				node->right->is_red = 1;
+				node->right->left->is_red = 0;
+				node->right->right->is_red = 0;
 			}
 			else if(IS_3(node->left))
 			{
@@ -506,9 +475,9 @@ struct rb_node * rb_delete(struct rb_node ** const root, struct rb_node * item,
 				node = rb_ror(node, parent);
 				rb_rol(node->right, node);
 
-				node->isRed = 0;
-				node->right->isRed = 1;
-				node->right->right->isRed = 0;
+				node->is_red = 0;
+				node->right->is_red = 1;
+				node->right->right->is_red = 0;
 			}
 			else
 			{
@@ -522,6 +491,6 @@ struct rb_node * rb_delete(struct rb_node ** const root, struct rb_node * item,
 	}
 
 	if(parent == 0)
-		*root = rb_set_black(node);
-	return item;
+		rb->root = rb_set_black(node);
+	return 0;
 }
